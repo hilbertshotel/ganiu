@@ -37,7 +37,7 @@ func main() {
 	// HANDLE BUSINESS
 	for {
 
-		time.Sleep(time.Second * 15)
+		time.Sleep(time.Second * 30)
 
 		// fetch open order
 		orders, err := api.OpenOrders(make(map[string]string))
@@ -69,6 +69,7 @@ func main() {
 
 		// handle limit order
 		if orderType == "limit" {
+			fmt.Println("Limit order still pending")
 			continue
 		}
 
