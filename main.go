@@ -14,12 +14,12 @@ import (
 func main() {
 
 	// init logger
-	log := log.New(os.Stdout, "ERROR: ", log.Lshortfile)
+	log := log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile)
 
 	// read config
 	file, err := os.ReadFile("./ganiu.json")
 	if err != nil {
-		log.Println("Reading config:", err)
+		log.Println("ERROR: Reading config:", err)
 		return
 	}
 
@@ -27,7 +27,7 @@ func main() {
 	var cfg Config
 	err = json.Unmarshal(file, &cfg)
 	if err != nil {
-		log.Println("Parsing config:", err)
+		log.Println("ERROR: Parsing config:", err)
 		return
 	}
 
@@ -42,19 +42,19 @@ func main() {
 		// fetch open order
 		orders, err := api.OpenOrders(make(map[string]string))
 		if err != nil {
-			log.Println("Fetching open orders:", err)
+			log.Println("ERROR: Fetching open orders:", err)
 			continue
 		}
 
 		// if no open orders, all gucci
 		if len(orders.Open) == 0 {
-			log.Println("No open orders")
+			log.Println("ERROR: No open orders")
 			break
 		}
 
 		// for now ganiu will operate with one open order
 		if len(orders.Open) > 1 {
-			log.Println("Ganiu can't handle multiple open orders")
+			log.Println("ERROR: Ganiu can't handle multiple open orders")
 			break
 		}
 
@@ -69,14 +69,14 @@ func main() {
 
 		// handle limit order
 		if orderType == "limit" {
-			fmt.Println("Limit order still pending")
+			log.Println("Limit order still pending")
 			continue
 		}
 
 		// get last price
 		ticker, err := api.Ticker(cfg.Pair)
 		if err != nil {
-			log.Println("Getting ticker:", err)
+			log.Println("ERROR: Getting ticker:", err)
 			continue
 		}
 		lastPrice := ticker.XETHZUSD.Close[0]
@@ -84,7 +84,7 @@ func main() {
 		// parse last price into float
 		price, err := strconv.ParseFloat(lastPrice, 0)
 		if err != nil {
-			log.Println("Parsing last price:", err)
+			log.Println("ERROR: Parsing last price:", err)
 			continue
 		}
 
@@ -94,17 +94,17 @@ func main() {
 			// get balance
 			balance, err := api.Balance()
 			if err != nil {
-				log.Println("Getting balance:", err)
+				log.Println("ERROR: Getting balance:", err)
 				continue
 			}
 
 			// cancel stop-loss order
 			_, err = api.CancelOrder(orderId)
 			if err != nil {
-				log.Println("Cancelling stop-loss order:", err)
+				log.Println("ERROR: Cancelling stop-loss order:", err)
 				continue
 			}
-			fmt.Println("Stop-loss canceled")
+			log.Println("Stop-loss cancelled")
 
 			// place take-profit order
 			takePrice := fmt.Sprintf("%v", cfg.OrderData.Take)
@@ -112,10 +112,10 @@ func main() {
 			args := map[string]string{"price": takePrice}
 			_, err = api.AddOrder(cfg.Pair, "sell", "take-profit", volume, args)
 			if err != nil {
-				log.Println("Adding order:", err)
+				log.Println("ERROR: Adding order:", err)
 				continue
 			}
-			fmt.Println("Take-profit placed")
+			log.Println("Take-profit placed")
 
 			continue
 		}
@@ -126,17 +126,17 @@ func main() {
 			// get balance
 			balance, err := api.Balance()
 			if err != nil {
-				log.Println("Getting balance:", err)
+				log.Println("ERROR: Getting balance:", err)
 				continue
 			}
 
 			// cancel take-profit order
 			_, err = api.CancelOrder(orderId)
 			if err != nil {
-				log.Println("Cancelling take-profit order:", err)
+				log.Println("ERROR: Cancelling take-profit order:", err)
 				continue
 			}
-			fmt.Println("Take-proft canceled")
+			log.Println("Take-proft cancelled")
 
 			// place stop-loss order
 			stopPrice := fmt.Sprintf("%v", cfg.OrderData.Stop)
@@ -144,10 +144,10 @@ func main() {
 			args := map[string]string{"price": stopPrice}
 			_, err = api.AddOrder(cfg.Pair, "sell", "stop-loss", volume, args)
 			if err != nil {
-				log.Println("Adding order:", err)
+				log.Println("ERROR: Adding order:", err)
 				continue
 			}
-			fmt.Println("Stop-loss placed")
+			log.Println("Stop-loss placed")
 
 			continue
 		}
