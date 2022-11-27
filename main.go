@@ -35,6 +35,7 @@ func main() {
 	api := krakenapi.New(cfg.ApiData.Key, cfg.ApiData.Secret)
 
 	// HANDLE BUSINESS
+	counter := 0
 	for {
 
 		time.Sleep(time.Second * 30)
@@ -69,7 +70,11 @@ func main() {
 
 		// handle limit order
 		if orderType == "limit" {
-			log.Println("Limit order still pending")
+			if counter == 60 {
+				log.Println("Limit order still pending")
+				counter = 0
+			}
+			counter++
 			continue
 		}
 
@@ -90,68 +95,56 @@ func main() {
 
 		// if order is stop-loss and current price > entry price
 		if orderType == "stop-loss" && price > cfg.OrderData.Entry {
-
-			// get balance
-			balance, err := api.Balance()
+			err = HandleOrder(api, &cfg, orderId, orderType)
 			if err != nil {
-				log.Println("ERROR: Getting balance:", err)
-				continue
+				log.Println(err)
 			}
-
-			// cancel stop-loss order
-			_, err = api.CancelOrder(orderId)
-			if err != nil {
-				log.Println("ERROR: Cancelling stop-loss order:", err)
-				continue
-			}
-			log.Println("Stop-loss cancelled")
-
-			// place take-profit order
-			takePrice := fmt.Sprintf("%v", cfg.OrderData.Take)
-			volume := fmt.Sprintf("%v", balance.XETH)
-			args := map[string]string{"price": takePrice}
-			_, err = api.AddOrder(cfg.Pair, "sell", "take-profit", volume, args)
-			if err != nil {
-				log.Println("ERROR: Adding order:", err)
-				continue
-			}
-			log.Println("Take-profit placed")
-
 			continue
 		}
 
 		// if order is take-prfit and current price < entry price
 		if orderType == "take-profit" && price < cfg.OrderData.Entry {
-
-			// get balance
-			balance, err := api.Balance()
+			err = HandleOrder(api, &cfg, orderId, orderType)
 			if err != nil {
-				log.Println("ERROR: Getting balance:", err)
-				continue
+				log.Println(err)
 			}
-
-			// cancel take-profit order
-			_, err = api.CancelOrder(orderId)
-			if err != nil {
-				log.Println("ERROR: Cancelling take-profit order:", err)
-				continue
-			}
-			log.Println("Take-proft cancelled")
-
-			// place stop-loss order
-			stopPrice := fmt.Sprintf("%v", cfg.OrderData.Stop)
-			volume := fmt.Sprintf("%v", balance.XETH)
-			args := map[string]string{"price": stopPrice}
-			_, err = api.AddOrder(cfg.Pair, "sell", "stop-loss", volume, args)
-			if err != nil {
-				log.Println("ERROR: Adding order:", err)
-				continue
-			}
-			log.Println("Stop-loss placed")
-
 			continue
 		}
 
 	}
 
+}
+
+// HANDLE ORDER FUNCTION
+func HandleOrder(api *krakenapi.KrakenApi, cfg *Config, orderId string, orderType string) error {
+	// get balance
+	balance, err := api.Balance()
+	if err != nil {
+		log.Println("ERROR: Getting balance:", err)
+		return err
+	}
+
+	// cancel order by orderId
+	_, err = api.CancelOrder(orderId)
+	if err != nil {
+		log.Println("ERROR: Cancelling order:", err)
+		return err
+	}
+	log.Println(orderType + " order cancelled")
+
+	// wait in cased the cancelation lags
+	time.Sleep(time.Second * 1)
+
+	// place order by orderType
+	stopPrice := fmt.Sprintf("%v", cfg.OrderData.Stop)
+	volume := fmt.Sprintf("%v", balance.XETH)
+	args := map[string]string{"price": stopPrice}
+	_, err = api.AddOrder(cfg.Pair, "sell", orderType, volume, args)
+	if err != nil {
+		log.Println("ERROR: Placing order:", err)
+		return err
+	}
+	log.Println(orderType + " order placed")
+
+	return nil
 }
