@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -35,11 +37,11 @@ func main() {
 	// connect to kraken api
 	api := kraken.New(cfg.ApiData.Key, cfg.ApiData.Secret)
 
-	// HANDLE BUSINESS
+	// START LISTENING
 	logOk.Println("Ganiu is listening..")
 	for {
 
-		time.Sleep(time.Second * 30)
+		time.Sleep(time.Second * cfg.WaitTime)
 
 		// fetch open order
 		orders, err := api.OpenOrders(make(map[string]string))
@@ -74,24 +76,23 @@ func main() {
 			continue
 		}
 
-		// get last price
-		ticker, err := api.Ticker("XETHZUSD")
-		if err != nil {
-			logErr.Println("Getting ticker:", err)
-			continue
-		}
+		// get currency pair
+		pair := cfg.Currency.Base + cfg.Currency.Quote
 
-		lastPrice, err := strconv.ParseFloat(ticker.XETHZUSD.Close[0], 0)
+		// get last price
+		lastPrice, err := GetLastPrice(pair)
 		if err != nil {
-			logErr.Println("Parsing last price:", err)
+			logErr.Println("Getting last price:", err)
 			continue
 		}
 
 		// if order is stop-loss and current price > entry price
 		if orderType == "stop-loss" && lastPrice > cfg.OrderData.Entry {
 			newOrder := NewOrder{
-				Type:  "take-profit",
-				Entry: cfg.OrderData.Take,
+				Pair:         pair,
+				Type:         "take-profit",
+				Entry:        cfg.OrderData.Take,
+				BaseCurrency: cfg.Currency.Base,
 			}
 
 			err = HandleOrder(api, orderId, orderType, &newOrder)
@@ -101,11 +102,13 @@ func main() {
 			continue
 		}
 
-		// if order is take-prfit and current price < entry price
+		// if order is take-profit and current price < entry price
 		if orderType == "take-profit" && lastPrice < cfg.OrderData.Entry {
 			newOrder := NewOrder{
-				Type:  "stop-loss",
-				Entry: cfg.OrderData.Stop,
+				Pair:         pair,
+				Type:         "stop-loss",
+				Entry:        cfg.OrderData.Stop,
+				BaseCurrency: cfg.Currency.Base,
 			}
 
 			err = HandleOrder(api, orderId, orderType, &newOrder)
@@ -119,12 +122,42 @@ func main() {
 
 }
 
-// HANDLE ORDER FUNCTION
-func HandleOrder(api *kraken.KrakenApi, orderId, orderType string, newOrder *NewOrder) error {
-	// get balance
-	balance, err := api.Balance()
+// GET LAST PRICE
+func GetLastPrice(pair string) (float64, error) {
+	url := "https://api.kraken.com/0/public/Ticker?pair=" + pair
+	resp, err := http.Get(url)
 	if err != nil {
-		logErr.Println("Getting balance:", err)
+		logErr.Println("Requesting last price:", err)
+		return 0, err
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		logErr.Println("Reading response body:", err)
+		return 0, err
+	}
+
+	var ticker Ticker
+	err = json.Unmarshal(body, &ticker)
+	if err != nil {
+		logErr.Println("Parsing response body:", err)
+		return 0, err
+	}
+
+	lastPrice, err := strconv.ParseFloat(ticker.Result[pair].Close[0], 0)
+	if err != nil {
+		logErr.Println("Parsing last price:", err)
+		return 0, err
+	}
+
+	return lastPrice, nil
+}
+
+// HANDLE ORDER
+func HandleOrder(api *kraken.KrakenApi, orderId, orderType string, newOrder *NewOrder) error {
+	// get base currency volume to sell
+	volume, err := GetVolume(api, newOrder.BaseCurrency)
+	if err != nil {
 		return err
 	}
 
@@ -140,12 +173,11 @@ func HandleOrder(api *kraken.KrakenApi, orderId, orderType string, newOrder *New
 	time.Sleep(time.Second * 1)
 
 	// parse order type
-	volume := fmt.Sprintf("%v", balance.XETH)
 	args := map[string]string{
 		"price": fmt.Sprintf("%v", newOrder.Entry),
 	}
 
-	_, err = api.AddOrder("XETHZUSD", "sell", newOrder.Type, volume, args)
+	_, err = api.AddOrder(newOrder.Pair, "sell", newOrder.Type, volume, args)
 	if err != nil {
 		logErr.Println("Placing order:", err)
 		return err
@@ -153,4 +185,32 @@ func HandleOrder(api *kraken.KrakenApi, orderId, orderType string, newOrder *New
 	logOk.Println(newOrder.Type + " order placed")
 
 	return nil
+}
+
+// GET BALANCE
+func GetVolume(api *kraken.KrakenAPI, base string) (string, error) {
+	// get balance
+	balance, err := api.Balance()
+	if err != nil {
+		logErr.Println("Getting balance:", err)
+		return "", err
+	}
+
+	// marshal balance struct
+	data, err := json.Marshal(balance)
+	if err != nil {
+		logErr.Println("Marshalling balance:", err)
+		return "", err
+	}
+
+	// unmarshal balance struct into interface map
+	var bmap map[string]interface{}
+	err = json.Unmarshal(data, &bmap)
+	if err != nil {
+		logErr.Println("Unmarshalling balance:", err)
+		return "", err
+	}
+
+	// parse float to string in return value
+	return fmt.Sprintf("%v", bmap[base]), nil
 }
