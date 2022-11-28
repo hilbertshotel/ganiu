@@ -3,14 +3,13 @@ ganiu is a trading bot for the kraken exchange
 
 his inputs are entry, stop-loss and take-profit targets
 
-he waits for a limit order to be filled then he observes the price
+he waits for my limit order to be filled, then he observes
 
-if the price drops below the entry target, he places a stop-loss order
+if the price goes above the entry target he cancels my stop-loss and places a take-profit
 
-if the price goes above the entry target, he places a take-profit order
+if the price drops below the entry target, he cancels my take-profit and places a stop loss
 
-currently ganiu trades only XETHZUSD
+he does so until one of the orders gets filled
 
-ganiu is a good bot
+other inputs include wait time and currency pair
 ```
-
