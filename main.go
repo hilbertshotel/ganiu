@@ -8,18 +8,19 @@ import (
 	"strconv"
 	"time"
 
-	krakenapi "github.com/beldur/kraken-go-api-client"
+	kraken "github.com/beldur/kraken-go-api-client"
 )
 
-func main() {
+// init logger
+var logErr = log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
+var logOk = log.New(os.Stdout, "OK: ", log.Ldate|log.Ltime)
 
-	// init logger
-	log := log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile)
+func main() {
 
 	// read config
 	file, err := os.ReadFile("./ganiu.json")
 	if err != nil {
-		log.Println("ERROR: Reading config:", err)
+		logErr.Println("Reading config:", err)
 		return
 	}
 
@@ -27,15 +28,15 @@ func main() {
 	var cfg Config
 	err = json.Unmarshal(file, &cfg)
 	if err != nil {
-		log.Println("ERROR: Parsing config:", err)
+		logErr.Println("Parsing config:", err)
 		return
 	}
 
 	// connect to kraken api
-	api := krakenapi.New(cfg.ApiData.Key, cfg.ApiData.Secret)
+	api := kraken.New(cfg.ApiData.Key, cfg.ApiData.Secret)
 
 	// HANDLE BUSINESS
-	counter := 0
+	logOk.Println("Ganiu is listening..")
 	for {
 
 		time.Sleep(time.Second * 30)
@@ -43,19 +44,19 @@ func main() {
 		// fetch open order
 		orders, err := api.OpenOrders(make(map[string]string))
 		if err != nil {
-			log.Println("ERROR: Fetching open orders:", err)
+			logErr.Println("Fetching open orders:", err)
 			continue
 		}
 
 		// if no open orders, all gucci
 		if len(orders.Open) == 0 {
-			log.Println("ERROR: No open orders")
+			logErr.Println("No open orders")
 			break
 		}
 
 		// for now ganiu will operate with one open order
 		if len(orders.Open) > 1 {
-			log.Println("ERROR: Ganiu can't handle multiple open orders")
+			logErr.Println("Ganiu can't handle multiple open orders")
 			break
 		}
 
@@ -70,43 +71,46 @@ func main() {
 
 		// handle limit order
 		if orderType == "limit" {
-			if counter == 60 {
-				log.Println("Limit order still pending")
-				counter = 0
-			}
-			counter++
 			continue
 		}
 
 		// get last price
-		ticker, err := api.Ticker(cfg.Pair)
+		ticker, err := api.Ticker("XETHZUSD")
 		if err != nil {
-			log.Println("ERROR: Getting ticker:", err)
+			logErr.Println("Getting ticker:", err)
 			continue
 		}
-		lastPrice := ticker.XETHZUSD.Close[0]
 
-		// parse last price into float
-		price, err := strconv.ParseFloat(lastPrice, 0)
+		lastPrice, err := strconv.ParseFloat(ticker.XETHZUSD.Close[0], 0)
 		if err != nil {
-			log.Println("ERROR: Parsing last price:", err)
+			logErr.Println("Parsing last price:", err)
 			continue
 		}
 
 		// if order is stop-loss and current price > entry price
-		if orderType == "stop-loss" && price > cfg.OrderData.Entry {
-			err = HandleOrder(api, &cfg, orderId, orderType)
+		if orderType == "stop-loss" && lastPrice > cfg.OrderData.Entry {
+			newOrder := NewOrder{
+				Type:  "take-profit",
+				Entry: cfg.OrderData.Take,
+			}
+
+			err = HandleOrder(api, orderId, orderType, &newOrder)
 			if err != nil {
-				log.Println(err)
+				logErr.Println(err)
 			}
 			continue
 		}
 
 		// if order is take-prfit and current price < entry price
-		if orderType == "take-profit" && price < cfg.OrderData.Entry {
-			err = HandleOrder(api, &cfg, orderId, orderType)
+		if orderType == "take-profit" && lastPrice < cfg.OrderData.Entry {
+			newOrder := NewOrder{
+				Type:  "stop-loss",
+				Entry: cfg.OrderData.Stop,
+			}
+
+			err = HandleOrder(api, orderId, orderType, &newOrder)
 			if err != nil {
-				log.Println(err)
+				logErr.Println(err)
 			}
 			continue
 		}
@@ -116,35 +120,37 @@ func main() {
 }
 
 // HANDLE ORDER FUNCTION
-func HandleOrder(api *krakenapi.KrakenApi, cfg *Config, orderId string, orderType string) error {
+func HandleOrder(api *kraken.KrakenApi, orderId, orderType string, newOrder *NewOrder) error {
 	// get balance
 	balance, err := api.Balance()
 	if err != nil {
-		log.Println("ERROR: Getting balance:", err)
+		logErr.Println("Getting balance:", err)
 		return err
 	}
 
 	// cancel order by orderId
 	_, err = api.CancelOrder(orderId)
 	if err != nil {
-		log.Println("ERROR: Cancelling order:", err)
+		logErr.Println("Cancelling order:", err)
 		return err
 	}
-	log.Println(orderType + " order cancelled")
+	logOk.Println(orderType + " order cancelled")
 
 	// wait in cased the cancelation lags
 	time.Sleep(time.Second * 1)
 
-	// place order by orderType
-	stopPrice := fmt.Sprintf("%v", cfg.OrderData.Stop)
+	// parse order type
 	volume := fmt.Sprintf("%v", balance.XETH)
-	args := map[string]string{"price": stopPrice}
-	_, err = api.AddOrder(cfg.Pair, "sell", orderType, volume, args)
+	args := map[string]string{
+		"price": fmt.Sprintf("%v", newOrder.Entry),
+	}
+
+	_, err = api.AddOrder("XETHZUSD", "sell", newOrder.Type, volume, args)
 	if err != nil {
-		log.Println("ERROR: Placing order:", err)
+		logErr.Println("Placing order:", err)
 		return err
 	}
-	log.Println(orderType + " order placed")
+	logOk.Println(newOrder.Type + " order placed")
 
 	return nil
 }

@@ -13,7 +13,12 @@ type ApiData struct {
 }
 
 type Config struct {
-	Pair      string
 	OrderData OrderData
 	ApiData   ApiData
+}
+
+// NEW ORDER
+type NewOrder struct {
+	Type  string
+	Entry float64
 }

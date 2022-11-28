@@ -17,5 +17,7 @@ each iteration is 30 seconds long
 
 he also waits for 1 second in between canelation and placement just in case of lag
 
+currently he is programmed to work with the XETHZUSD currency pair
+
 ganiu is a good bot
 ```
